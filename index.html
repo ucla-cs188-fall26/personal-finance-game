@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#12151d">
+  <meta name="description" content="A life sim for your first real money decisions.">
+  <title>Money Run · A personal finance life sim</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="top">
+      <a class="brand" href="./" aria-label="Money Run home"><span class="mark" aria-hidden="true">↗</span> MONEY<span class="accent">RUN</span></a>
+      <span class="build">PLAYTEST BUILD / 01</span>
+    </header>
+    <main id="game"></main>
+    <footer><span>MONEY RUN <span class="dot">/</span> A PERSONAL FINANCE LIFE SIM</span><button type="button" class="text-button" data-action="notes">How the sim works ↗</button></footer>
+  </div>
+  <dialog id="notes" aria-labelledby="notes-title">
+    <form method="dialog"><button class="close" aria-label="Close notes">×</button></form>
+    <p class="eyebrow">BEHIND THE NUMBERS</p>
+    <h2 id="notes-title">The card in this game</h2>
+    <p>The fictional card has a $1,000 limit, a 24% APR and a minimum payment of $35 or the full statement balance if it’s lower. You never spend real money.</p>
+    <p>At each statement, the game subtracts your payment, then adds 2% interest (24% ÷ 12) to the remaining balance. Paying in full adds no interest in this model. Real issuers often calculate interest daily; grace periods, minimums, fees and trailing interest vary by card. The game leaves out fees and credit scores.</p>
+    <p><a href="https://www.consumerfinance.gov/ask-cfpb/what-is-a-grace-period-for-a-credit-card-en-47/" target="_blank" rel="noopener noreferrer">CFPB: Credit card grace periods ↗</a><br><a href="https://www.consumerfinance.gov/ask-cfpb/how-does-my-credit-card-company-calculate-the-amount-of-interest-i-owe-en-51/" target="_blank" rel="noopener noreferrer">CFPB: How card interest is calculated ↗</a></p>
+  </dialog>
+</body>
+</html>
