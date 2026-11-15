@@ -4,13 +4,36 @@ Money Run is a BitLife-inspired personal finance simulation for UCLA CS 188. It 
 
 ## Run it
 
+You need Git, Python 3, and a web browser. Node 18 or later is only needed to run the tests.
+
+Download the project and switch to the prototype branch (skip the last line if the prototype is already on `main`):
+
+```sh
+git clone https://github.com/ucla-cs188-fall26/personal-finance-game.git
+cd personal-finance-game
+git checkout shreyas-branch
+```
+
 From the project directory, start a local server:
 
 ```sh
 python3 -m http.server 8000 --bind 127.0.0.1
 ```
 
+On Windows, use `python` instead of `python3` if `python3` is not found.
+
 Open http://localhost:8000. No dependencies, account, or API key are needed. The current run is saved in that browser. To run the simulation checks, use `node --test` (Node 18 or later).
+
+To stop the server, press Ctrl+C in the terminal.
+
+## Play the core scenario
+
+1. On the opening screen, click **▶ Play my life**.
+2. Choose how to pay for the laptop. The wallet on the right shows your checking, card balance, and interest.
+3. Read the outcome and the money skill card, then click **＋ Move life forward**.
+4. Repeat for all seven events: three card statements, a bike repair, a campus job, and a call from Dad.
+5. After the seventh event, click **🎓 Finish the semester**, answer the three-question check, and click **See my results**.
+6. The results screen shows your final cash, card balance, total interest paid, milestones, and the money skills notebook. Click **Start a new life** to play again, or **↻ Start over** at the top at any time.
 
 ## Prototype scope
 
