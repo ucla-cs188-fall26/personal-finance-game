@@ -6,12 +6,11 @@ Money Run is a BitLife-inspired personal finance simulation for UCLA CS 188. It 
 
 You need Git, Python 3, and a web browser. Node 18 or later is only needed to run the tests.
 
-Download the project and switch to the prototype branch (skip the last line if the prototype is already on `main`):
+Download the project:
 
 ```sh
 git clone https://github.com/ucla-cs188-fall26/personal-finance-game.git
 cd personal-finance-game
-git checkout shreyas-branch
 ```
 
 From the project directory, start a local server:
