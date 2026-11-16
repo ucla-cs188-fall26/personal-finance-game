@@ -19,7 +19,11 @@ From the project directory, start a local server:
 python3 -m http.server 8000 --bind 127.0.0.1
 ```
 
-On Windows, use `python` instead of `python3` if `python3` is not found.
+On Windows, use this command instead. The plain command above serves the game's `.mjs` files with the wrong type, and the page loads blank:
+
+```sh
+python -c "import http.server as s; s.SimpleHTTPRequestHandler.extensions_map['.mjs']='text/javascript'; s.test(s.SimpleHTTPRequestHandler, port=8000, bind='127.0.0.1')"
+```
 
 Open http://localhost:8000. No dependencies, account, or API key are needed. The current run is saved in that browser. To run the simulation checks, use `node --test` (Node 18 or later).
 
