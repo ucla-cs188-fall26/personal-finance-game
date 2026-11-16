@@ -1,65 +1,30 @@
-import { money } from './engine.mjs';
-const savings = ['CFPB · Emergency savings guide', 'https://www.consumerfinance.gov/an-essential-guide-to-building-an-emergency-fund/'];
-const interest = ['CFPB · How interest works', 'https://www.consumerfinance.gov/ask-cfpb/how-does-my-credit-card-company-calculate-the-amount-of-interest-i-owe-en-51/'];
-const grace = ['CFPB · Grace periods', 'https://www.consumerfinance.gov/ask-cfpb/what-is-a-grace-period-for-a-credit-card-en-47/'];
-const fed = ['Federal Reserve · 2025 survey, published May 2026', 'https://www.federalreserve.gov/publications/2026-economic-well-being-of-us-households-in-2025-savings-investments.htm'];
-export function lessonFor(run, index = run.history.length - 1) {
-  const item = run.history[index];
-  if (!item) return null;
-  const delta = item.delta;
-  if ([1, 4, 6].includes(index)) {
-    const paid = -(delta.cash || 0);
-    const charged = delta.interest || 0;
-    return {
-      skill: 'Read a statement', title: charged ? 'The minimum isn’t the price tag.' : 'Paid off is a different thing from paid on time.',
-      why: charged ? `You paid ${money(paid)}, but ${money(charged)} of interest was added. Your debt fell by only ${money(paid - charged)}. A smaller payment preserves cash today while leaving more debt for later.` : 'This cycle added no interest in the game. In real life, avoiding purchase interest generally requires an available grace period and paying the full statement by its due date. Carrying a balance can remove that grace period.',
-      action: 'Find three fields on a statement: statement balance, minimum due, and due date. Check your checking balance before setting a payment.',
-      fact: charged ? 'Many issuers calculate interest daily. When interest applies, paying earlier can reduce the cost.' : 'Most cards offer a purchase grace period, but issuers are not required to offer one.',
-      source: charged ? interest : grace,
-      question: 'Practice: leave $200 unpaid at this game’s 2% monthly rate. How much interest gets added?',
-      answers: ['$2', '$4', '$40'], correct: 1,
-      explanation: '$200 × 0.02 = $4. The next balance becomes $204 before any new activity. Real cards often use daily balances; this is the game’s simplified model.',
-      ...(index === 4 ? {
-        question: 'A $500 balance is due. Compare paying $35 with paying $100. Which leaves less balance to accrue interest?',
-        answers: ['Paying $35', 'Paying $100', 'They leave the same balance'], correct: 1,
-        explanation: 'Before interest, paying $35 leaves $465; paying $100 leaves $400. At the game’s 2% rate, interest is $9.30 versus $8. You also need enough cash for essentials.',
-      } : index === 6 ? {
-        question: 'On a real card with a purchase grace period and no prior balance, what generally avoids purchase interest?',
-        answers: ['Paying the minimum', 'Paying half', 'Paying the full statement by its due date'], correct: 2,
-        explanation: 'The full statement by the due date generally preserves the grace period. Check your card terms: carrying balances can remove it, and cash advances often work differently.',
-      } : {}),
-    };
-  }
-  if (index === 0) return {
-    skill: 'Compare total cost', title: delta.balance ? 'Available credit isn’t extra income.' : 'Cash avoids borrowing, but uses your buffer.',
-    why: delta.balance ? `Your checking balance stayed the same, but you now owe ${money(delta.balance)}. Paying later changes the timing, not the price. Interest can make that price grow.` : 'You paid $340 today. That avoids laptop debt but leaves $380 in checking for everything that comes next.',
-    action: 'Before buying, compare the price, repayment plan, and cash left for essentials. The $340 laptop costs $260 less than the $600 one before interest.',
-    fact: 'Purchase interest can be avoided with a grace period when you carry no prior balance and pay the full statement on time.', source: grace,
-    question: 'A $600 card purchase leaves $720 in checking. How much is left after reserving the $600 to repay it?', answers: ['$720', '$1,320', '$120'], correct: 2,
-    explanation: '$720 − $600 = $120. Your bank balance alone can hide bills you already owe.',
-  };
-  if (index === 2) return {
-    skill: 'Build a buffer', title: delta.balance ? 'A surprise bill can become a longer bill.' : 'You found a way through the unexpected.',
-    why: delta.balance ? 'The repair is done, but its $120 cost moves to your next statement. An emergency cash reserve can help keep a repair from becoming ongoing debt.' : `You used ${money(-delta.cash)} for transport. Choosing the bus costs $80 less than the repair this term, with a different time and convenience tradeoff.`,
-    action: 'Pick a small emergency savings target based on a plausible surprise expense. Build it gradually when essentials and required payments are covered.',
-    fact: 'In the 2025 Federal Reserve survey, 63% of U.S. adults said they would cover a hypothetical $400 emergency using cash, savings, or a card paid off at the next statement. This does not mean the other 37% could not pay at all.', source: fed,
-    question: 'You set aside $20 from each weekly paycheck. How long to build a $120 repair fund?', answers: ['6 weeks', '12 weeks', '2 weeks'], correct: 0,
-    explanation: '$120 ÷ $20 = 6 weekly deposits, assuming no withdrawals. A small repeated amount can fund a specific goal.',
-  };
-  if (index === 3) return {
-    skill: 'Plan a paycheck', title: 'Give the next paycheck a job.',
-    why: `You brought home ${money(delta.cash)}. Extra work brings more cash but uses time you could spend studying or resting. A useful budget accounts for both.`,
-    action: 'List bills due before the next payday, then decide what you can save or spend. Use take-home pay, rather than the larger amount before deductions.',
-    fact: 'Cash flow includes when income arrives and when expenses leave. Even a budget that balances overall can run short if a bill comes before payday.', source: savings,
-    question: 'A $100 paycheck arrives. You reserve $35 for a card payment and $20 for savings. What remains?', answers: ['$65', '$45', '$80'], correct: 1,
-    explanation: '$100 − $35 − $20 = $45 for other needs. This is a practice budget, not an instruction to save before paying essentials.',
-  };
-  return {
-    skill: 'Make a repayment plan', title: delta.aid ? 'Help changes your cash, not your card statement.' : 'A plan matters more than doing it alone.',
-    why: delta.aid ? `The ${money(delta.aid)} gift went into checking. Your card balance only falls when you send a payment. There is no penalty here for accepting help.` : 'Whether you ask for help or handle it yourself, identify the amount due, the payment date, and the money available to cover it.',
-    action: 'If someone offers support, clarify whether it is a gift or a loan and agree on any repayment expectations. In this story, Dad’s help is a gift.',
-    fact: 'In 2025, 55% of U.S. adults reported having savings set aside for three months of expenses, according to the Federal Reserve. Financial buffers vary widely.', source: fed,
-    question: 'A $200 gift arrives in checking while you owe $300 on a card. What is the card balance before you make a payment?', answers: ['$100', '$0', '$300'], correct: 2,
-    explanation: 'It is still $300. Receiving money and paying a creditor are separate actions.',
-  };
+const sources = {
+  grace: ['CFPB · Grace periods', 'https://www.consumerfinance.gov/ask-cfpb/what-is-a-grace-period-for-a-credit-card-en-47/'],
+  interest: ['CFPB · Credit card interest', 'https://www.consumerfinance.gov/ask-cfpb/how-does-my-credit-card-company-calculate-the-amount-of-interest-i-owe-en-51/'],
+  saving: ['CFPB · Emergency savings', 'https://www.consumerfinance.gov/an-essential-guide-to-building-an-emergency-fund/'],
+  fed: ['Federal Reserve · 2025 survey, May 2026', 'https://www.federalreserve.gov/publications/2026-economic-well-being-of-us-households-in-2025-savings-investments.htm'],
+};
+const lessons = {
+  laptop: ['Compare total cost', 'Credit changes when you pay, not what you owe.', 'A purchase leaves a bill even if the money is still in checking. Keep enough cash for essentials and the next card payment.', 'Before buying, compare the price, your repayment plan, and money left for essentials.', 'grace'],
+  bike_repair: ['Build a cash buffer', 'An unexpected repair should not become a long-running bill.', 'Paying cash uses your buffer; credit preserves cash now but may add interest later. A cheaper alternative can buy you time.', 'Start an emergency fund with a realistic small target and regular contributions.', 'fed'],
+  campus_job: ['Budget your paycheck', 'More income creates options—and costs time.', 'Work can help cover the next bill. Budget from take-home pay and account for study time and rest.', 'List bills due before the next payday before choosing what to spend or save.', 'saving'],
+  call_home: ['Plan a repayment', 'Accepting help and paying a bill are separate steps.', 'A gift changes checking, not the balance owed. You still need to make the payment. Asking for help is a legitimate option.', 'Clarify whether support is a gift or a loan and agree on expectations.', 'saving'],
+  grace_lost: ['Understand the grace period', 'Paying on time does not always mean interest-free.', 'Leaving part of the statement unpaid ends the grace period in this model. The next cycle charges interest. Actual card agreements may use different timing.', 'Look for the full statement balance and due date, not just the minimum.', 'grace'],
+  grace_restored: ['Restore your buffer', 'Your card is paid off.', 'In the game, paying in full restores the grace period immediately. A real card may require more than one fully paid cycle and may have trailing interest.', 'Read the grace-period section of your own card agreement.', 'grace'],
+  late_fee: ['Avoid late costs', 'A missed minimum adds a second cost.', 'The game adds a fee as well as possible interest. The fictional card uses $30 for the first late fee and $41 for another within six cycles. These are game terms, not universal legal limits.', 'Use a due-date reminder, and check your bank balance before enabling automatic payments.', 'interest'],
+  late_mark: ['Protect payment history', 'Late payments can outlast the bill.', 'This model records a late mark at 30, 60, and 90 days past due. Its credit penalty fades over seven years. Exact reporting and scoring in real life vary.', 'If you cannot pay, contact the issuer before the due date to ask about available options.', 'interest'],
+  penalty_apr_on: ['Understand borrowing costs', 'Your simulated borrowing rate just increased.', 'After 60 days past due this card switches to 29.99% APR. In this game six consecutive on-time payments turn it off; this is a simplified rule.', 'Read penalty-rate terms and prioritize a sustainable on-time payment plan.', 'interest'],
+  score_first: ['Read credit factors', 'A score is a summary, not a measure of your worth.', 'The game can estimate a score after six cycles. Its weighted factors illustrate payment history, borrowing, account age, new credit, and mix. It does not predict your actual FICO score.', 'Open Stats to see which factors affect this simulated score.', 'saving'],
+  payment: ['Compare payment plans', 'The minimum is a requirement, not a payoff plan.', 'Paying more generally leaves less debt to accrue interest. Balance that with enough cash for necessities. Paying in full while a grace period applies avoids purchase interest.', 'Compare the full statement balance with your budget before choosing a payment amount.', 'interest'],
+};
+const checks = {
+  payment: ['In a simplified 2% monthly model, what interest does $200 accrue?', ['$2', '$4', '$40'], 1, '$200 × 0.02 = $4. Actual cards often use daily balances.'],
+  saving: ['You put away $20 each week. When will you have $120?', ['6 weeks', '12 weeks', '2 weeks'], 0, '$120 ÷ $20 = 6 deposits, assuming no withdrawals.'],
+};
+export function lessonFor(eventId, outcome = {}) {
+  const sourceEvent = lessons[eventId] ? eventId : outcome.kind === 'payment' ? 'payment' : null;
+  const row = lessons[sourceEvent] || ['Plan for your next bill', 'Every choice changes your future options.', 'Compare the cost today with the cash and commitments you will have next month. Borrowed money still needs a repayment plan.', 'Set aside money for required bills before deciding what is available to spend.', 'saving'];
+  const [skill, title, why, action, sourceKey] = row;
+  const [question, answers, correct, explanation] = checks[['payment','grace_lost','late_fee','penalty_apr_on'].includes(sourceEvent) ? 'payment' : 'saving'];
+  return { skill, title, why, action, source: sources[sourceKey], fact: sourceKey === 'fed' ? 'In the 2025 Federal Reserve survey, 63% of U.S. adults said they would cover a hypothetical $400 emergency using cash, savings, or a card paid in full at the next statement. This does not mean the other 37% could not pay at all.' : '', question, answers, correct, explanation };
 }

@@ -1,206 +1,142 @@
+import { newGame, ageOf, dateOf, utilization, totalDebt, netWorth, money } from './engine/state.mjs';
+import { advanceMonth, advanceYear, resolveChoice } from './engine/tick.mjs';
+import { creditFactors, band } from './engine/credit.mjs';
+import { quizzes } from './engine/legacy.mjs';
 import { lessonFor } from './learning.mjs';
-import { chapters, newRun, eventFor, decide, quizzes, money, LIMIT } from './engine.mjs';
-
 const root = document.querySelector('#game');
+const popup = document.querySelector('#choice');
 const notes = document.querySelector('#notes');
-const storageKey = 'money-run-playtest-v2';
-const initial = () => ({ phase: 'intro', run: newRun(), before: [], after: [], confidence: {}, pending: false });
-let state = initial();
+const key = 'money-run-v3';
+const fresh = () => ({ game: newGame(), screen: 'intro', playtest: false, before: [], after: [], confidence: {}, receipt: null });
+let session = fresh();
+let notice = '';
 try {
-  const saved = JSON.parse(localStorage.getItem(storageKey));
-  if (saved && ['intro', 'before', 'play', 'after', 'results'].includes(saved.phase)
-    && Array.isArray(saved.run?.history) && Array.isArray(saved.before) && Array.isArray(saved.after)) state = saved;
-} catch { /* Play still works without browser storage. */ }
-
-const icon = (glyph, style = '') => `<span class="icon ${style}" aria-hidden="true">${glyph}</span>`;
-const { length: total } = chapters;
-const score = key => quizzes[key].filter((q, i) => state[key][i] === q[2]).length;
-const title = text => `<h1 tabindex="-1">${text}</h1>`;
-const stat = (label, value, style, glyph) => `<div class="stat">${icon(glyph, style)}<div><p>${label}</p><strong class="${style}">${value}</strong></div></div>`;
-const nextButton = (label, action) => `<button type="button" class="primary" data-action="${action}">${label}<span aria-hidden="true">→</span></button>`;
-const stepLabel = n => String(n).padStart(2, '0');
-const moments = ['💻', '💳', '🚲', '📚', '📬', '☎️', '🎓'];
-const seasons = ['September · Week 1', 'September · Week 4', 'October · Week 1', 'October · Week 2', 'October · Week 4', 'November · Week 1', 'November · Week 4'];
-let collection = { runs: 0, badges: [] };
-try { collection = JSON.parse(localStorage.getItem('money-run-collection')) || collection; } catch {}
-const badges = (run = state.run) => [
-  ['first', '🌱', 'First steps', 'Make your first decision', run.history.length > 0],
-  ['payoff', '💎', 'Clean slate', 'Pay a statement in full', run.history.some(h => h.label === 'Pay the statement in full')],
-  ['finish', '🎓', 'Semester survivor', 'Finish all seven life events', run.history.length === total],
-  ['buffer', '🛟', 'Breathing room', 'Finish with $300 cash and no card debt', run.history.length === total && run.cash >= 30000 && !run.balance],
-];
-function lifeBar() {
-  const step = state.run.history.length;
-  return `<div class="life-bar"><span class="life-face">🧑‍🎓</span><div><strong>Alex's college years</strong><small>Age 19 · ${seasons[Math.min(step - Number(state.pending), total - 1)]}</small></div><span class="xp">${step * 50} XP</span><progress aria-label="Semester progress" max="7" value="${step}"></progress></div>`;
+  const saved = JSON.parse(localStorage.getItem(key));
+  if (saved?.game?.card && Array.isArray(saved.game.log) && Number.isInteger(saved.game.month) && ['intro','life','stats','before','after','ending'].includes(saved.screen)) session = saved;
+} catch { notice = 'Your saved run could not be loaded. A new life is ready.'; }
+let collection = [];
+try { const stored = JSON.parse(localStorage.getItem('money-run-v3-badges')); if (Array.isArray(stored)) collection = stored.filter(x => typeof x === 'string'); } catch {}
+const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const btn = (label, action, cls = 'primary') => `<button type="button" class="${cls}" data-action="${action}">${label}</button>`;
+const heading = text => `<h1 tabindex="-1">${text}</h1>`;
+const percent = n => `${Math.round(n * 100)}%`;
+const date = month => { const d = dateOf({ ...session.game, month }); return new Date(d.year,d.monthIndex).toLocaleDateString('en-US',{month:'long',year:'numeric'}); };
+const scoreText = s => s === null ? 'No score yet' : s;
+const scoreQuiz = phase => quizzes[phase].filter((q,i) => session[phase][i] === q[2]).length;
+function badges() {
+ const s = session.game;
+ return [
+ ['first','🌱','First steps',s.log.some(e => e.type === 'choice_made')],
+ ['clean','💎','Clean slate',s.log.some(e => e.type === 'payment' && e.kind === 'full' && e.amount > 0)],
+ ['score','📈','First score',s.credit.score !== null],
+ ['streak','🔥','Six on time',s.card.onTimeStreak >= 6 || s.flags.sixOnTime],
+ ['graduate','🎓','Life lived',s.phase === 'ended'],
+ ];
 }
-function trophyCase() {
-  return `<div class="trophy-case"><p class="eyebrow">MILESTONES · ${collection.runs} COMPLETED RUNS</p><div class="badges">${badges().map(([id, emoji, name, description, earned]) => `<div class="badge ${earned || collection.badges.includes(id) ? 'earned' : ''}"><span>${emoji}</span><strong>${name}</strong><small>${description}</small><b>${earned ? 'UNLOCKED THIS RUN' : collection.badges.includes(id) ? 'IN YOUR COLLECTION' : 'TO DISCOVER'}</b></div>`).join('')}</div></div>`;
+function persist() {
+ for (const [id,,,earned] of badges()) if (earned && !collection.includes(id)) collection.push(id);
+ try { localStorage.setItem(key,JSON.stringify(session)); localStorage.setItem('money-run-v3-badges',JSON.stringify(collection)); } catch { notice = 'Browser storage is unavailable. This run will last until the page closes.'; }
 }
-function journal() {
-  if (!state.run.history.length) return '';
-  return `<details class="journal"><summary>📖 My life so far · ${state.run.history.length} memories</summary>${state.run.history.map((h, i) => `<article><span>${moments[i]}</span><div><small>${seasons[i]}</small><p>${h.story}</p></div></article>`).reverse().join('')}</details>`;
+function topbar() {
+ const s = session.game;
+ const diff = session.scoreDelta || 0;
+ return `<div class="topbar"><div class="character"><div class="avatar">🧑‍🎓</div><div><strong>Alex Morgan <span>Age ${ageOf(s)}</span></strong><small>${date(s.month)}</small></div></div><div class="top-money"><span>CHECKING<strong>${money(s.cash)}</strong></span><span>CARD DEBT<strong class="peach">${money(s.card.balance)}</strong></span><span>SIMULATED SCORE<strong>${scoreText(s.credit.score)} ${diff ? `<small class="${diff < 0 ? 'peach' : 'mint'}">${diff > 0 ? '▲' : '▼'}${Math.abs(diff)}</small>` : ''}</strong></span></div>${btn(session.screen === 'stats' ? '← Life' : '◴ Stats',session.screen === 'stats' ? 'life' : 'stats','secondary')}</div>`;
 }
-
-
-function learningCard() {
-  const lesson = lessonFor(state.run);
-  const step = state.run.history.length;
-  const answer = state.practice?.[step];
-  return `<section class="learning-card" aria-label="Money skill"><p class="eyebrow">💡 MONEY SKILL · ${lesson.skill}</p><h2>${lesson.title}</h2><p>${lesson.why}</p><details><summary>Try this in real life</summary><p>${lesson.action}</p></details><div class="money-fact"><strong>OUTSIDE THE GAME</strong><p>${lesson.fact}</p><a href="${lesson.source[1]}" target="_blank" rel="noopener noreferrer">${lesson.source[0]} ↗</a></div><details class="practice" ${answer !== undefined ? 'open' : ''}><summary>⚡ Quick challenge · try your new skill</summary><p>${lesson.question}</p><div class="practice-options">${lesson.answers.map((text, i) => `<button type="button" data-practice="${i}" ${answer !== undefined ? 'disabled' : ''}>${text}${answer === i ? ' ← Your answer' : ''}</button>`).join('')}</div>${answer !== undefined ? `<p role="status"><strong>${answer === lesson.correct ? 'You got it.' : 'Here’s how to work it out.'}</strong> ${lesson.explanation}</p>` : '<small>Optional. No penalty for experimenting.</small>'}</details></section>`;
-}
-
-function sidebar() {
-  const step = state.run.history.length;
-  const active = step - Number(state.pending);
-  return `<aside class="side">
-    <div class="side-head"><span class="eyebrow">YOUR CHARACTER</span><span class="live"><i></i> ACTIVE</span></div>
-    <div class="profile"><span class="avatar" aria-hidden="true">AM</span><div><strong>Alex Morgan</strong><p>Age 19 · College sophomore</p></div></div>
-    <div class="wallet"><div class="side-head"><span class="eyebrow">WALLET</span><span class="wallet-note">SIMULATED USD</span></div>
-      ${stat('Checking', money(state.run.cash), 'mint', '$')}
-      ${stat('Card balance', money(state.run.balance), 'peach', '▤')}
-      ${stat('Interest charged', money(state.run.interest), 'muted', '%')}
-      <div class="usage"><span>Credit limit</span><span>${money(LIMIT)}</span></div>
-      <progress aria-label="Credit used" max="${LIMIT}" value="${state.run.balance}"></progress>
-    </div>
-    <div class="timeline"><div class="side-head"><span class="eyebrow">YOUR TIMELINE</span><span class="wallet-note">${step} / ${total}</span></div>
-      <ol>${chapters.map((label, i) => `<li class="${i < step ? 'done' : ''}" ${i === active && active < total ? 'aria-current="step"' : ''}><span class="number" aria-hidden="true">${i < step ? '✓' : stepLabel(i + 1)}</span>${label}</li>`).join('')}</ol>
-    </div>
-  </aside>`;
-}
-
 function intro() {
-  return `<div class="hero">
-    <div class="hero-art" aria-hidden="true"><div class="orbit"></div><div class="card-art"><span>STUDENT CREDIT</span><b>▰</b><span>•••• &nbsp; 2026</span></div><span class="spark">✦</span></div>
-    <p class="eyebrow"><span class="chapter-chip">CHAPTER 01</span> <span class="hero-tag">THE CREDIT CARD ARC</span></p>
-    ${title('Your life.<br><em>Your next move.</em>')}
-    <p class="lead">You’re a college sophomore with $720 in checking and your first credit card. When your laptop dies before midterms, how you pay is up to you.</p>
-    ${nextButton('▶ Play my life', 'start')}<button class="research-link text-button" data-action="research">Playtest mode: take the before-quiz first</button>
-    <div class="meta"><span>◷ &nbsp; ABOUT 5 MIN</span><span>◇ &nbsp; 7 LIFE EVENTS</span><span>NO REAL MONEY</span></div>
-  </div>
-  <div class="brief"><div>${icon('↗', 'mint')}<h2>Make the call</h2><p>Choose how to handle purchases, card bills, and a surprise expense.</p></div><div>${icon('≋', 'peach')}<h2>See what it costs</h2><p>Watch interest and cash change with each decision. Check what you learned at the end.</p></div></div>`;
+ return `<section class="hero"><p class="eyebrow">A FINANCIAL LIFE SIMULATOR</p><div class="hero-emoji" aria-hidden="true">🧑‍🎓</div>${heading('Your life.<br><em>Your next move.</em>')}<p class="lead">A new credit card. A broken laptop. A whole life ahead.<br>Start at 19. Make the calls. Find out where your money takes you.</p><div class="start-info"><span><b>$720</b> in checking</span><span><b>6 years</b> to explore</span><span><b>One life</b> at a time</span></div>${btn('▶ Start my life','start')}<button class="text-button" data-action="playtest">Research playtest · include before & after checks</button><p class="fine">One month per move for your first year. Then age up a year at a time.<br>Fictional money and an educational credit score. No real-world stakes.</p></section><div class="intro-cards"><article><span>💳</span><h2>Live with your choices</h2><p>Pay in full, carry a balance, or miss a payment. Watch the consequences unfold.</p></article><article><span>🧠</span><h2>Get wiser as you go</h2><p>Unlock practical money lessons in the moments they matter.</p></article><article><span>↻</span><h2>Try another life</h2><p>Different choices. Different events. New milestones to discover.</p></article></div>`;
 }
-
-function quiz(key) {
-  const isBefore = key === 'before';
-  return `<div class="panel">
-    <p class="eyebrow"><span class="chapter-chip">${isBefore ? 'BEFORE YOU PLAY' : 'AFTER YOUR RUN'}</span></p>
-    ${title(isBefore ? 'Quick knowledge check' : 'What stuck?')}
-    <p class="lead">${isBefore ? 'Answer three questions so you can compare what you know now with what you know after the run.' : 'Try three new questions about the same ideas. Then compare your two scores.'}</p>
-    <form id="quiz" data-quiz="${key}">
-      ${quizzes[key].map(([prompt, answers], i) => `<fieldset><legend><span class="question-num">${stepLabel(i + 1)}.</span> ${prompt}</legend>${answers.map((answer, j) => `<label class="answer"><input type="radio" name="q${i}" value="${j}" required> ${answer}</label>`).join('')}</fieldset>`).join('')}
-      <fieldset><legend><label for="confidence">How confident are you that you could manage your own credit card bill?</label></legend>
-        <select id="confidence" name="confidence" required><option value="">Choose 1–10</option>${Array.from({ length: 10 }, (_, i) => `<option value="${i + 1}">${i + 1}${i === 0 ? ' — Not confident' : i === 9 ? ' — Very confident' : ''}</option>`).join('')}</select>
-      </fieldset>
-      <button class="primary" type="submit">${isBefore ? 'Enter the simulation' : 'See my results'}<span aria-hidden="true">→</span></button>
-    </form>
-  </div>`;
+function feed() {
+ const s = session.game;
+ let lastAge = null;
+ const entries = s.log.map(entry => {
+  const age = s.startAge + Math.floor((entry.month || 0)/12);
+  const group = age !== lastAge ? `<h2 class="age-label">AGE ${age}<span>${date(entry.month || 0)}</span></h2>` : '';
+  lastAge = age;
+  return `${group}<article class="feed-entry ${entry.tone === 'bad' ? 'bad' : entry.tone === 'good' ? 'good' : ''}"><span class="entry-icon" aria-hidden="true">${esc(entry.icon || '•')}</span><div><p>${esc(entry.text)}</p></div></article>`;
+ }).join('');
+ return `<div class="life-grid"><section class="life-panel"><div class="section-head"><div><p class="eyebrow">YOUR STORY</p>${heading('Life happens.')}</div><span class="mode-tag">${s.phase === 'monthly' ? 'MONTH BY MONTH' : s.phase === 'ended' ? 'CHAPTER COMPLETE' : 'YEAR BY YEAR'}</span></div><div class="feed" id="life-feed" tabindex="0" aria-label="Life journal">${entries || '<div class="first-entry"><span>🌱</span><h2>A fresh start.</h2><p>You’re 19, starting sophomore year with $720 and a new credit card. Your first month is waiting.</p></div>'}</div><div class="advance-bar">${s.pending ? '<p>Make your choice to keep your story moving.</p>' : s.phase === 'ended' ? btn('See how this life turned out →','ending') : btn(s.phase === 'monthly' ? '＋ Next month' : '＋ Age up','advance')}<small>${s.phase === 'monthly' ? `${s.month} / 12 months · learning the ropes` : 'Monthly bills and payments continue between life events.'}</small></div></section><aside><section class="side-card"><p class="eyebrow">THE BIG PICTURE</p><div class="networth"><small>Net worth</small><strong>${money(netWorth(s))}</strong></div><div class="metric"><span>Credit used</span><b>${percent(utilization(s))}</b></div><progress max="100" value="${Math.min(100,utilization(s)*100)}" aria-label="Credit utilization"></progress><div class="metric"><span>Interest charged</span><b>${money(s.card.interestPaid)}</b></div><div class="metric"><span>On-time streak</span><b>${s.card.onTimeStreak} months</b></div><p class="fine">${s.phase === 'monthly' ? 'Choose a payment each month. At age 20, set your standing plan in Stats.' : `Standing plan: ${esc(s.paymentPolicy)}. Change it in Stats before aging up.`}</p></section><section class="side-card"><p class="eyebrow">YOUR MILESTONES</p>${badges().map(([id,icon,name,earned]) => `<div class="badge ${earned || collection.includes(id) ? 'earned' : ''}"><span>${icon}</span><div><strong>${name}</strong><small>${earned ? 'Earned this life' : collection.includes(id) ? 'In your collection' : 'Still to discover'}</small></div></div>`).join('')}</section></aside></div>`;
 }
-
-function play() {
-  const step = state.run.history.length;
-  if (state.pending) {
-    const { label, story, delta } = state.run.history.at(-1);
-    const changes = Object.entries(delta).filter(([, value]) => value)
-      .map(([key, value]) => `<span class="change">${{cash:'Checking', balance:'Card balance', interest:'Interest', aid:'Family help'}[key]} <strong>${value > 0 ? '+' : '−'}${money(Math.abs(value))}</strong></span>`).join('');
-    return `<div class="panel decision"><p class="eyebrow"><span class="chapter-chip">EVENT ${stepLabel(step)} / ${stepLabel(total)}</span> &nbsp; OUTCOME</p>
-      <div class="reward-pop">✦ +50 XP · LIFE EXPERIENCE</div>${title(label)}<p class="lead">${story}</p>${badges().filter(b => b[4] && !collection.badges.includes(b[0]) && !badges({ ...state.run, history: state.run.history.slice(0, -1) }).find(previous => previous[0] === b[0])[4]).map(b => `<div class="unlock">${b[1]} Milestone unlocked: <strong>${b[2]}</strong></div>`).join('')}
-      <div class="changes">${changes || '<span class="change">No change to your wallet</span>'}</div>
-      ${learningCard()}${nextButton(step === total ? '🎓 Finish the semester' : '＋ Move life forward', 'continue')}${step < total ? `<p class="next-tease">UP NEXT · ${moments[step]} ${chapters[step]}</p>` : ''}</div>`;
+function stats() {
+ const s = session.game;
+ const factors = creditFactors(s);
+ const factorsNames = {payment:'Payment history · 35%',amounts:'Amounts owed · 30%',age:'Account age · 15%',newCredit:'New credit · 10%',mix:'Credit mix · 10%'};
+ const hist = s.credit.history.filter(h => Number.isFinite(h.score));
+ const points = hist.map((h,i) => `${hist.length === 1 ? 0 : i/(hist.length-1)*500},${110-(h.score-300)/550*100}`).join(' ');
+ const metric = (name,value) => `<div class="stat-tile"><span>${name}</span><strong>${value}</strong></div>`;
+ return `<section class="stats-page"><p class="eyebrow">YOUR FINANCIAL SNAPSHOT</p>${heading('Know your numbers.')}<div class="stats-grid"><section class="panel"><h2>Money</h2><div class="tiles">${metric('Checking',money(s.cash))}${metric('Savings',money(s.savings))}${metric('Total debt',money(totalDebt(s)))}${metric('Net worth',money(netWorth(s)))}${metric('Monthly take-home',money(s.income.monthly))}${metric('Monthly cash bills',money(s.expenses.monthly))}${metric('Monthly card spending',money(s.spending.monthly))}</div><h2>Your payment plan</h2><p class="fine">${s.phase === 'monthly' ? 'Available at age 20. For now, decide each month.' : 'Applied every month during an age-up. If cash runs short, the game pays only what is available.'}</p><label for="policy">Standing payment</label><select id="policy" ${s.phase !== 'yearly' ? 'disabled' : ''}>${[['full','Pay in full'],['minimum','Pay the minimum'],['fixed','Pay a fixed amount'],['none','Pay nothing']].map(([id,label]) => `<option value="${id}" ${s.paymentPolicy === id ? 'selected' : ''}>${label}</option>`).join('')}</select><label for="fixed-payment">Fixed payment ($)</label><input id="fixed-payment" type="number" min="0" max="1000000" step="0.01" value="${s.fixedPayment/100}" ${s.phase !== 'yearly' || s.paymentPolicy !== 'fixed' ? 'disabled' : ''}><p class="fine" id="plan-feedback" role="status"></p><h2>Life</h2><p>Alex Morgan · Age ${ageOf(s)} · ${s.flags.graduated ? 'Graduate' : ageOf(s) >= 21 ? 'College senior' : 'College student'}</p></section><section class="panel"><div class="credit-title"><div><p class="eyebrow">SIMULATED CREDIT</p><strong>${scoreText(s.credit.score)}</strong><p>${s.credit.score === null ? 'Your first score needs six cycles of history.' : band(s.credit.score)}</p></div><span>◴</span></div><svg class="sparkline" viewBox="0 0 500 120" role="img" aria-label="Simulated credit score history"><path d="M0 110H500" stroke="#394b50"/><polyline points="${points}" fill="none" stroke="#a5f3cb" stroke-width="3"/></svg>${Object.entries(factorsNames).map(([id,label]) => `<div class="factor"><div><span>${label}</span><b>${percent(factors[id] || 0)}</b></div><progress value="${factors[id] || 0}" max="1" aria-label="${label}"></progress></div>`).join('')}<p class="fine">Factor strength in our teaching model, not a real credit bureau score. Paying the minimum on time is not itself a late payment; a high balance can lower the amounts-owed factor.</p><div class="tiles">${metric('Current APR',`${((s.card.penaltyActive ? s.card.penaltyApr : s.card.apr)*100).toFixed(2)}%${s.card.penaltyActive ? ' · PENALTY' : ''}`)}${metric('Card limit',money(s.card.limit))}${metric('Minimum due',money(s.card.minimumDue))}${metric('Interest charged',money(s.card.interestPaid))}${metric('Fees charged',money(s.card.feesPaid))}${metric('On-time streak',`${s.card.onTimeStreak} months`)}</div><details><summary>Late marks (${s.card.lateMarks.length})</summary>${s.card.lateMarks.map(m => `<p>${date(m.month)} · ${m.days} days late</p>`).join('') || '<p>No late marks. Keep it going.</p>'}</details></section></div></section>`;
+}
+function ending() {
+ const s = session.game;
+ const choices = s.log.filter(e => e.type === 'choice_made');
+ const costly = s.log.find(e => ['penalty_apr_on','late_fee','grace_lost'].includes(e.type));
+ const good = s.log.find(e => e.type === 'payment' && e.kind === 'full' && e.amount > 0);
+ return `<section class="panel ending"><div class="ending-icon">🎓</div><p class="eyebrow">AGE ${ageOf(s)} · ONE LIFE, MANY CHOICES</p>${heading(s.card.balance === 0 ? 'A fresh chapter. A clean slate.' : 'Your story is still yours.')}<p class="lead">From your first card to age ${ageOf(s)}, every choice left a mark. Here’s where this life landed.</p><div class="tiles"><div class="stat-tile"><span>Net worth</span><strong>${money(netWorth(s))}</strong></div><div class="stat-tile"><span>Simulated score</span><strong>${scoreText(s.credit.score)}</strong><small>${s.credit.score === null ? '' : band(s.credit.score)}</small></div><div class="stat-tile"><span>Interest charged</span><strong>${money(s.card.interestPaid)}</strong></div><div class="stat-tile"><span>Fees charged</span><strong>${money(s.card.feesPaid)}</strong></div></div><div class="reflection"><h2>A habit that helped</h2><p>${good ? 'You paid a statement in full. That reduced the balance you carried into the next month.' : 'You reached the end and saw the consequences. Try an on-time payment plan in your next life.'}</p><h2>A costly turning point</h2><p>${costly ? esc(costly.text) : 'You avoided the main credit traps in this run. See what happens if your next life takes a different path.'}</p></div><div class="challenge"><strong>↻ Your next-life challenge</strong><p>${s.card.feesPaid ? 'Can you reach 25 without a late fee?' : s.card.interestPaid ? 'Try paying in full and keeping the grace period for an entire life.' : 'Keep your credit habits and try different life choices. Where will you end up?'}</p></div>${session.playtest ? session.after.length ? `<p>Knowledge check: ${scoreQuiz('before')}/3 before → ${scoreQuiz('after')}/3 after. Confidence: ${session.confidence.before}/10 → ${session.confidence.after}/10.</p><details><summary>Review answers</summary>${quizzes.after.map(([q,a,c],i) => `<p><strong>${esc(q)}</strong><br>Your answer: ${esc(a[session.after[i]])}<br>Correct: ${esc(a[c])}</p>`).join('')}</details>` : btn('Complete the playtest check','after','secondary') : ''}<details><summary>Your money skills notebook</summary>${[...new Set(choices.map(e => e.eventId).filter(Boolean))].map(id => {const l=lessonFor(id);return `<h3>${l.skill}</h3><p>${l.action}</p><a href="${l.source[1]}" target="_blank" rel="noopener noreferrer">${l.source[0]} ↗</a>`;}).join('')}</details>${btn('↻ Start another life','restart')}${btn('Look back at my life','life','secondary')}</section>`;
+}
+function quiz(phase) {
+ return `<section class="panel quiz"><p class="eyebrow">RESEARCH PLAYTEST · ${phase.toUpperCase()}</p>${heading(phase === 'before' ? 'What do you know today?' : 'What stuck with you?')}<p class="lead">Three questions and a confidence check. Your answers stay in this browser.</p><form id="quiz" data-phase="${phase}">${quizzes[phase].map(([q,a],i) => `<fieldset><legend>${i+1}. ${esc(q)}</legend>${a.map((answer,j) => `<label class="answer"><input type="radio" required name="q${i}" value="${j}">${esc(answer)}</label>`).join('')}</fieldset>`).join('')}<label for="confidence">How confident are you managing a credit card bill?</label><select name="confidence" id="confidence" required><option value="">Choose 1–10</option>${Array.from({length:10},(_,i) => `<option value="${i+1}">${i+1}${i===0?' · Not confident':i===9?' · Very confident':''}</option>`).join('')}</select><button class="primary" type="submit">${phase === 'before' ? 'Start my life →' : 'See my results →'}</button></form></section>`;
+}
+function popupContent() {
+ if (session.receipt) {
+  const r = session.receipt;
+  const l = lessonFor(r.lessonId,{ kind:r.kind });
+  const answer = r.answer;
+  return `<p class="eyebrow">CHOICE MADE · KEEP LEARNING</p><h2 id="choice-title">${esc(r.label)}</h2><p>${esc(r.outcome)}</p><section class="lesson"><p class="eyebrow">💡 ${l.skill}</p><h3>${l.title}</h3><p>${l.why}</p><details><summary>Try this in real life</summary><p>${l.action}</p></details>${l.fact ? `<p class="fact">${l.fact}</p>` : ''}<a href="${l.source[1]}" target="_blank" rel="noopener noreferrer">${l.source[0]} ↗</a><details ${answer !== undefined ? 'open' : ''}><summary>⚡ Optional quick challenge</summary><p>${l.question}</p><div class="practice-options">${l.answers.map((a,i) => `<button data-practice="${i}" ${answer!==undefined?'disabled':''}>${a}</button>`).join('')}</div>${answer!==undefined?`<p role="status"><strong>${answer === l.correct ? 'You got it.' : 'Here’s the idea.'}</strong> ${l.explanation}</p>`:''}</details></section>${btn('Continue my life →','continue')}`;
+ }
+ const p = session.game.pending;
+ if (!p) return '';
+ return `<p class="eyebrow">${p.kind === 'payment' ? '💳 YOUR CARD STATEMENT' : '✨ A MOMENT IN YOUR LIFE'}</p><h2 id="choice-title">${esc(p.title)}</h2><p>${esc(p.description)}</p>${p.kind === 'payment' ? `<div class="payment-facts"><span>Checking <b>${money(session.game.cash)}</b></span><span>Balance <b>${money(session.game.card.balance)}</b></span><span>Minimum <b>${money(session.game.card.minimumDue)}</b></span></div><label for="custom">Custom payment ($)</label><input id="custom" type="number" min="0" max="${Math.min(session.game.cash,session.game.card.balance)/100}" step="0.01" value="${Math.min(session.game.cash,Math.ceil(session.game.card.balance/2))/100}"><p id="custom-error" role="alert"></p>` : ''}<div class="choices">${p.options.map((o,i) => `<button class="choice" data-choice="${i}" ${o.disabled ? 'disabled' : ''}><span class="choice-num">${String(i+1).padStart(2,'0')}</span><span><strong>${esc(o.label)}</strong><small>${esc(o.detail)}${o.disabled ? ' · Unavailable with your current balance' : ''}</small></span><span>→</span></button>`).join('')}</div>`;
+}
+function render(focus=false) {
+ const active = !['intro','before'].includes(session.screen);
+ root.innerHTML = `${notice ? `<p role="status" class="notice">${esc(notice)}</p>` : ''}${active?topbar():''}${session.screen==='intro'?intro():session.screen==='life'?feed():session.screen==='stats'?stats():session.screen==='ending'?ending():quiz(session.screen)}`;
+ const content = session.screen==='life' ? popupContent() : '';
+ if (content) { popup.innerHTML=content; if (!popup.open) popup.showModal(); }
+ else if (popup.open) popup.close();
+ if (focus && !popup.open) root.querySelector('h1')?.focus({preventScroll:true});
+ const f=document.querySelector('#life-feed'); if(f) f.scrollTop=f.scrollHeight;
+}
+function apply(result) {
+ const before = session.game.credit.score;
+ session.game=result.state;
+ session.scoreDelta=before===null || result.state.credit.score===null ? 0 : result.state.credit.score-before;
+ if (session.game.card.onTimeStreak >= 6) session.game.flags.sixOnTime=true;
+ persist(); render();
+}
+popup.addEventListener('cancel', e => e.preventDefault());
+document.addEventListener('click', e => {
+ const b=e.target.closest('button'); if(!b)return;
+ const action=b.dataset.action;
+ if(action==='notes')return notes.showModal();
+ if(action==='close-notes')return notes.close();
+ if(action==='restart'){session=fresh();persist();render(true);return;}
+ if(action==='start'||action==='playtest'){session.playtest=action==='playtest';session.screen=action==='playtest'?'before':'life';persist();render(true);return;}
+ if(['stats','life','ending','after'].includes(action)){session.screen=action;persist();render(true);return;}
+ if(action==='advance'&&!session.game.pending){apply(session.game.phase==='yearly'?advanceYear(session.game):advanceMonth(session.game));return;}
+ if(action==='continue'){session.receipt=null;persist();render();return;}
+ if(b.dataset.practice!==undefined&&session.receipt){session.receipt.answer=Number(b.dataset.practice);persist();render();return;}
+ if(b.dataset.choice!==undefined&&session.game.pending){
+  const index=Number(b.dataset.choice), pending=session.game.pending, option=pending.options[index];
+  let custom;
+  if(option.id==='custom'||option.id==='fixed'){
+   const input=document.querySelector('#custom');
+   if(!input?.checkValidity()){input?.reportValidity();return;}
+   custom=Math.round(Number(input.value)*100);
   }
-  const event = eventFor(state.run);
-  return `<div class="panel decision">
-    <p class="eyebrow"><span class="chapter-chip">EVENT ${stepLabel(step + 1)} / ${stepLabel(total)}</span> &nbsp; ${event.tag}</p>
-    <div class="event-emoji" aria-hidden="true">${moments[step]}</div>${title(event.title)}<p class="lead">${event.description}</p>
-    <div class="choices">${event.options.map((option, i) => `<button class="choice" type="button" data-choice="${i}" ${option.disabled ? 'disabled' : ''}><span class="choice-number">${stepLabel(i + 1)}</span><span><strong>${option.label}</strong><small>${option.detail}${option.disabled ? ' · Unavailable' : ''}</small></span><span class="choice-arrow" aria-hidden="true">→</span></button>`).join('')}</div>
-  </div>`;
-}
-
-function results() {
-  const { cash, balance, interest, aid, history } = state.run;
-  const gain = score('after') - score('before');
-  return `<div class="panel">
-    <p class="eyebrow"><span class="chapter-chip">CHAPTER COMPLETE</span></p>
-    ${title(balance ? 'The semester ends.' : 'You cleared your card.')}
-    <p class="lead">You finished with ${money(cash)} in checking and ${money(balance)} left on your card. This run cost ${money(interest)} in interest${aid ? ` and you received ${money(aid)} in family help` : ''}.</p>
-    ${trophyCase()}<details><summary>📒 Your money skills notebook</summary>${state.run.history.map((_, i) => { const l = lessonFor(state.run, i); return `<article class="skill-note"><h3>${l.skill}</h3><p>${l.action}</p><a href="${l.source[1]}" target="_blank" rel="noopener noreferrer">${l.source[0]} ↗</a></article>`; }).join('')}</details><div class="scores"><div><span>BEFORE</span><strong>${state.before.length ? score('before') + ' / 3' : 'Skipped'}</strong></div><div><span>AFTER</span><strong>${score('after')} / 3</strong></div><div><span>CHANGE</span><strong class="mint">${state.before.length ? (gain > 0 ? '+' : '') + gain : '—'}</strong></div></div>
-    <p class="confidence">Confidence: <strong>${state.confidence.before ? state.confidence.before + '/10' : 'Not taken'}</strong> before → <strong>${state.confidence.after}/10</strong> after.</p>
-    <details><summary>Review the final knowledge check</summary><ol class="review">${quizzes.after.map(([prompt, answers, correct], i) => `<li><strong>${prompt}</strong><p>Your answer: ${answers[state.after[i]]}</p><p>Correct answer: ${answers[correct]}</p></li>`).join('')}</ol></details>
-    <details><summary>Review your decisions</summary><ol class="review">${history.map(item => `<li><strong>${item.label}</strong><p>${item.story}</p></li>`).join('')}</ol></details>
-    <div class="replay-quest"><strong>↻ Your next-life challenge</strong><p>${balance ? 'Try clearing the card before the semester ends.' : interest ? 'Can you finish a semester without paying any interest?' : 'Try a different laptop choice. How does it change the rest of your semester?'}</p></div>${nextButton('Start a new life', 'restart')}
-  </div>`;
-}
-
-function render(focus = false) {
-  const content = { intro, before: () => quiz('before'), play, after: () => quiz('after'), results };
-  const { cash, balance, interest } = state.run;
-  const wallet = state.phase === 'play' ? `<div class="mobile-wallet" aria-label="Wallet">
-    <span>Checking <strong class="mint">${money(cash)}</strong></span>
-    <span>Card <strong class="peach">${money(balance)}</strong></span>
-    <span>Interest <strong>${money(interest)}</strong></span>
-  </div>` : '';
-  root.innerHTML = `<section class="stage" aria-label="Simulation">${wallet}${state.phase === 'play' ? lifeBar() : ''}${content[state.phase]()}${state.phase === 'play' ? journal() : ''}</section>${sidebar()}`;
-  if (focus) {
-    root.querySelector('h1').focus({ preventScroll: true });
-    window.scrollTo(0, 0);
-  }
-}
-function save() {
-  try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch { /* Storage is optional. */ }
-  render(true);
-}
-
-document.addEventListener('click', event => {
-  const button = event.target.closest('button');
-  if (!button) return;
-  if (button.dataset.action === 'notes') return notes.showModal();
-  if (button.dataset.practice !== undefined && state.phase === 'play' && state.pending) {
-    const step = state.run.history.length;
-    state.practice ??= {};
-    if (state.practice[step] !== undefined) return;
-    state.practice[step] = Number(button.dataset.practice);
-    try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch {}
-    render();
-    root.querySelector('.practice [role="status"]').setAttribute('tabindex', '-1');
-    root.querySelector('.practice [role="status"]').focus({ preventScroll: true });
-    return;
-  }
-  if (button.dataset.choice !== undefined && state.phase === 'play' && !state.pending) {
-    const next = decide(state.run, Number(button.dataset.choice));
-    if (next !== state.run) {
-      state.run = next;
-      state.pending = true;
-      save();
-    }
-  } else if (button.dataset.action === 'start' && state.phase === 'intro') {
-    state.phase = 'play';
-    save();
-  } else if (button.dataset.action === 'research' && state.phase === 'intro') {
-    state.phase = 'before';
-    save();
-  } else if (button.dataset.action === 'continue' && state.pending) {
-    state.pending = false;
-    if (state.run.history.length === total) {
-      state.phase = 'after';
-      collection.runs++;
-      collection.badges = [...new Set([...collection.badges, ...badges().filter(b => b[4]).map(b => b[0])])];
-      try { localStorage.setItem('money-run-collection', JSON.stringify(collection)); } catch {}
-    }
-    save();
-  } else if (button.dataset.action === 'restart') {
-    state = initial();
-    save();
-  }
+  const result=resolveChoice(session.game,index,custom);
+  if(result.state===session.game)return;
+  const consequences=result.events.filter(ev=>['penalty_apr_on','late_mark','late_fee','grace_lost','score_first','grace_restored'].includes(ev.type));
+  session.receipt={label:option.label,kind:pending.kind,lessonId:consequences[0]?.type||pending.eventId,outcome:result.state.log.slice(session.game.log.length).filter(e => !['payday','bills','statement','choice_made'].includes(e.type)).slice(0,4).map(e => e.text).join(' ') || 'Your choice keeps your current finances unchanged.'};
+  apply(result);
+ }
 });
-
-root.addEventListener('submit', event => {
-  event.preventDefault();
-  const key = event.target.dataset.quiz;
-  if (key !== state.phase || !quizzes[key]) return;
-  const form = new FormData(event.target);
-  state[key] = quizzes[key].map((_, i) => Number(form.get(`q${i}`)));
-  state.confidence[key] = Number(form.get('confidence'));
-  state.phase = key === 'before' ? 'play' : 'results';
-  save();
+root.addEventListener('change', e=>{
+ if(e.target.id==='policy'&&session.game.phase==='yearly'){session.game.paymentPolicy=e.target.value;persist();render();}
+ if(e.target.id==='fixed-payment'&&session.game.phase==='yearly'&&e.target.checkValidity()){session.game.fixedPayment=Math.round(Number(e.target.value)*100);persist();document.querySelector('#plan-feedback').textContent='Payment plan saved.';}
 });
-
+root.addEventListener('submit', e=>{
+ if(e.target.id!=='quiz')return;
+ e.preventDefault();const phase=e.target.dataset.phase;const data=new FormData(e.target);
+ session[phase]=quizzes[phase].map((_,i)=>Number(data.get(`q${i}`)));session.confidence[phase]=Number(data.get('confidence'));
+ session.screen=phase==='before'?'life':'ending';persist();render(true);
+});
 render();
